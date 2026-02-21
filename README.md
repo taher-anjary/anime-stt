@@ -93,6 +93,8 @@ Verify it worked: run `ffmpeg -version` in a terminal and confirm it prints a ve
 
 Your browser opens at `http://127.0.0.1:5001` on its own.
 
+**Alternatively**, simply activate the venv then run `uv run app.py` in a terminal and open the URL manually.
+
 ---
 
 ## 🎬 Usage
