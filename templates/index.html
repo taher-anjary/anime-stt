@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Anime STT</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0f0f0f;
+      color: #e8e8e8;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 48px 16px 64px;
+    }
+
+    .header {
+      text-align: center;
+      margin-bottom: 36px;
+    }
+
+    .header h1 {
+      font-size: 26px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      margin-bottom: 6px;
+    }
+
+    .header h1 span {
+      color: #7c6af7;
+    }
+
+    .header p {
+      color: #666;
+      font-size: 13px;
+    }
+
+    .card {
+      width: 100%;
+      max-width: 620px;
+      background: #161616;
+      border: 1px solid #252525;
+      border-radius: 14px;
+      padding: 28px 32px;
+    }
+
+    .section-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: #555;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      margin-bottom: 16px;
+    }
+
+    .field {
+      margin-bottom: 16px;
+    }
+
+    label {
+      display: block;
+      font-size: 12px;
+      color: #888;
+      margin-bottom: 6px;
+    }
+
+    .input-row {
+      display: flex;
+      gap: 6px;
+    }
+
+    input[type="text"],
+    input[type="password"] {
+      flex: 1;
+      background: #0f0f0f;
+      border: 1px solid #2a2a2a;
+      border-radius: 8px;
+      color: #e8e8e8;
+      font-size: 13px;
+      padding: 9px 12px;
+      outline: none;
+      transition: border-color 0.15s;
+      min-width: 0;
+    }
+
+    input:focus {
+      border-color: #7c6af7;
+    }
+
+    input::placeholder {
+      color: #444;
+    }
+
+    .btn {
+      background: #7c6af7;
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 9px 14px;
+      transition: background 0.15s, opacity 0.15s;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .btn:hover { background: #6a58e0; }
+
+    .btn.ghost {
+      background: transparent;
+      border: 1px solid #2a2a2a;
+      color: #aaa;
+    }
+
+    .btn.ghost:hover {
+      background: #1e1e1e;
+      border-color: #444;
+      color: #e8e8e8;
+    }
+
+    .btn.ghost.link-btn {
+      font-size: 12px;
+      padding: 9px 12px;
+    }
+
+    .btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .divider {
+      border: none;
+      border-top: 1px solid #1f1f1f;
+      margin: 22px 0;
+    }
+
+    #generateBtn {
+      width: 100%;
+      padding: 12px;
+      font-size: 15px;
+      border-radius: 9px;
+      margin-top: 4px;
+    }
+
+    /* ── Progress ── */
+    #progress {
+      display: none;
+      margin-top: 28px;
+    }
+
+    .steps {
+      display: flex;
+      align-items: flex-start;
+      margin-bottom: 24px;
+      position: relative;
+    }
+
+    .step {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* connector line between dots */
+    .step:not(:last-child)::after {
+      content: "";
+      position: absolute;
+      top: 14px;
+      left: calc(50% + 14px);
+      right: calc(-50% + 14px);
+      height: 2px;
+      background: #252525;
+      z-index: 0;
+    }
+
+    .step.done:not(:last-child)::after {
+      background: #4ade80;
+    }
+
+    .step-dot {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: #111;
+      border: 2px solid #2a2a2a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      color: #555;
+      transition: all 0.3s;
+    }
+
+    .step.running .step-dot {
+      border-color: #7c6af7;
+      color: #7c6af7;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+
+    .step.done .step-dot {
+      border-color: #4ade80;
+      background: #4ade80;
+      color: #000;
+    }
+
+    .step.error .step-dot {
+      border-color: #f87171;
+      background: #f87171;
+      color: #000;
+    }
+
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(124, 106, 247, 0.4); }
+      50%       { box-shadow: 0 0 0 6px rgba(124, 106, 247, 0);  }
+    }
+
+    .step-label {
+      font-size: 11px;
+      color: #555;
+      margin-top: 7px;
+      text-align: center;
+      transition: color 0.3s;
+    }
+
+    .step.running .step-label { color: #7c6af7; }
+    .step.done    .step-label { color: #4ade80; }
+    .step.error   .step-label { color: #f87171; }
+
+    /* ── Log ── */
+    #logWrap {
+      background: #0a0a0a;
+      border: 1px solid #1e1e1e;
+      border-radius: 9px;
+      overflow: hidden;
+    }
+
+    #logHeader {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 14px;
+      border-bottom: 1px solid #1a1a1a;
+    }
+
+    #logHeader span {
+      font-size: 11px;
+      font-weight: 600;
+      color: #444;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+    }
+
+    #logClear {
+      font-size: 11px;
+      color: #444;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0;
+    }
+
+    #logClear:hover { color: #888; }
+
+    #log {
+      padding: 12px 14px;
+      height: 220px;
+      overflow-y: auto;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 12px;
+      line-height: 1.7;
+    }
+
+    #log:empty::before {
+      content: "Waiting for job to start...";
+      color: #333;
+    }
+
+    .ll { color: #555; }
+    .ll.info  { color: #888; }
+    .ll.done  { color: #4ade80; }
+    .ll.error { color: #f87171; }
+    .ll.warn  { color: #fbbf24; }
+
+    a { color: #7c6af7; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* scrollbar */
+    #log::-webkit-scrollbar { width: 4px; }
+    #log::-webkit-scrollbar-track { background: transparent; }
+    #log::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 2px; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h1>Anime <span>STT</span></h1>
+    <p>Japanese anime audio &rarr; English SRT subtitles &mdash; powered by Gemini</p>
+  </div>
+
+  <div class="card">
+
+    <!-- API Key -->
+    <div class="field">
+      <label>Gemini API Key</label>
+      <div class="input-row">
+        <input type="password" id="apiKey" placeholder="AIza..." autocomplete="off" spellcheck="false" />
+        <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" tabindex="-1">
+          <button class="btn ghost link-btn" type="button" tabindex="-1">Get Key ↗</button>
+        </a>
+      </div>
+    </div>
+
+    <hr class="divider" />
+
+    <!-- Video File -->
+    <div class="field">
+      <label>Video File</label>
+      <div class="input-row">
+        <input type="text" id="videoPath" placeholder="/path/to/episode.mkv" spellcheck="false" />
+        <button class="btn ghost" type="button" onclick="browseVideo()">Browse</button>
+      </div>
+    </div>
+
+    <!-- SRT Output -->
+    <div class="field">
+      <label>Output SRT Path</label>
+      <div class="input-row">
+        <input type="text" id="srtPath" placeholder="auto-filled when you pick a video" spellcheck="false" />
+        <button class="btn ghost" type="button" onclick="browseSrt()">Browse</button>
+      </div>
+    </div>
+
+    <button class="btn" id="generateBtn" onclick="generate()">Generate Subtitles</button>
+
+  </div>
+
+  <!-- Progress (shown after first run) -->
+  <div id="progress" style="width:100%;max-width:620px;">
+
+    <div class="steps">
+      <div class="step" id="step-audio">
+        <div class="step-dot">1</div>
+        <div class="step-label">Extract Audio</div>
+      </div>
+      <div class="step" id="step-transcribe">
+        <div class="step-dot">2</div>
+        <div class="step-label">Transcribe</div>
+      </div>
+      <div class="step" id="step-srt_fix">
+        <div class="step-dot">3</div>
+        <div class="step-label">Fix Timestamps</div>
+      </div>
+    </div>
+
+    <div id="logWrap">
+      <div id="logHeader">
+        <span>Log</span>
+        <button id="logClear" onclick="clearLog()">clear</button>
+      </div>
+      <div id="log"></div>
+    </div>
+
+  </div>
+
+  <script>
+    const STEP_NUMS = { audio: '1', transcribe: '2', srt_fix: '3' };
+
+    async function browseVideo() {
+      try {
+        const res = await fetch('/browse/video');
+        const data = await res.json();
+        if (data.error) { log('Browse unavailable: ' + data.error + ' — type path manually.', 'warn'); return; }
+        if (data.path) {
+          document.getElementById('videoPath').value = data.path;
+          document.getElementById('srtPath').value = data.srt_path;
+        }
+      } catch (e) {
+        log('Browse failed: ' + e.message, 'error');
+      }
+    }
+
+    async function browseSrt() {
+      try {
+        const res = await fetch('/browse/srt');
+        const data = await res.json();
+        if (data.error) { log('Browse unavailable: ' + data.error + ' — type path manually.', 'warn'); return; }
+        if (data.path) document.getElementById('srtPath').value = data.path;
+      } catch (e) {
+        log('Browse failed: ' + e.message, 'error');
+      }
+    }
+
+    function clearLog() {
+      document.getElementById('log').innerHTML = '';
+    }
+
+    function log(msg, cls = 'info') {
+      const el = document.getElementById('log');
+      const line = document.createElement('div');
+      line.className = 'll ' + cls;
+      // Timestamp prefix
+      const now = new Date();
+      const ts = now.toTimeString().slice(0, 8);
+      line.textContent = ts + '  ' + msg;
+      el.appendChild(line);
+      el.scrollTop = el.scrollHeight;
+    }
+
+    function setStep(step, status) {
+      const el = document.getElementById('step-' + step);
+      if (!el) return;
+      el.classList.remove('running', 'done', 'error');
+      if (status) el.classList.add(status);
+      const dot = el.querySelector('.step-dot');
+      if (status === 'done')  dot.textContent = '✓';
+      else if (status === 'error') dot.textContent = '✗';
+      else dot.textContent = STEP_NUMS[step] || '?';
+    }
+
+    function resetSteps() {
+      ['audio', 'transcribe', 'srt_fix'].forEach(s => setStep(s, null));
+    }
+
+    function generate() {
+      const apiKey    = document.getElementById('apiKey').value.trim();
+      const videoPath = document.getElementById('videoPath').value.trim();
+      const srtPath   = document.getElementById('srtPath').value.trim();
+
+      if (!apiKey)    { alert('Please enter your Gemini API key.'); return; }
+      if (!videoPath) { alert('Please enter or browse for the video file path.'); return; }
+      if (!srtPath)   { alert('Please enter the output SRT path.'); return; }
+
+      document.getElementById('progress').style.display = 'block';
+      clearLog();
+      resetSteps();
+      document.getElementById('generateBtn').disabled = true;
+
+      const params = new URLSearchParams({ api_key: apiKey, video_path: videoPath, srt_path: srtPath });
+      const es = new EventSource('/generate?' + params.toString());
+
+      es.onmessage = function(e) {
+        const msg = JSON.parse(e.data);
+
+        if (msg.type === 'step') {
+          setStep(msg.step, msg.status);
+        } else if (msg.type === 'log') {
+          log(msg.message);
+        } else if (msg.type === 'done') {
+          log(msg.message, 'done');
+          es.close();
+          document.getElementById('generateBtn').disabled = false;
+        } else if (msg.type === 'error') {
+          log('ERROR: ' + msg.message, 'error');
+          // Mark whichever step is currently running as errored
+          ['audio', 'transcribe', 'srt_fix'].forEach(s => {
+            if (document.getElementById('step-' + s).classList.contains('running')) {
+              setStep(s, 'error');
+            }
+          });
+          es.close();
+          document.getElementById('generateBtn').disabled = false;
+        }
+      };
+
+      es.onerror = function() {
+        log('Connection lost. The server may have stopped.', 'error');
+        es.close();
+        document.getElementById('generateBtn').disabled = false;
+      };
+    }
+  </script>
+
+</body>
+</html>

@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Virtual environment — recreated automatically by Start.bat / Start.command / Start.sh
+.venv/
+
+# uv-managed Python installations
+.python-version
+
+# Output & temp files
+*.srt
+*.mp3
+*.wav
+
+# Video files
+*.mp4
+*.mkv
+*.avi
+*.mov
+*.webm
+*.flv
+*.m4v
+*.ts
+
+# OS clutter
+.DS_Store
+Thumbs.db
