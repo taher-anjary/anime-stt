@@ -479,7 +479,7 @@
       ['audio', 'transcribe', 'srt_fix'].forEach(s => setStep(s, null));
     }
 
-    function generate() {
+    async function generate() {
       const apiKey    = document.getElementById('apiKey').value.trim();
       const videoPath = document.getElementById('videoPath').value.trim();
       const srtPath   = document.getElementById('srtPath').value.trim();
@@ -493,8 +493,27 @@
       resetSteps();
       document.getElementById('generateBtn').disabled = true;
 
-      const params = new URLSearchParams({ api_key: apiKey, video_path: videoPath, srt_path: srtPath });
-      const es = new EventSource('/generate?' + params.toString());
+      let jobId;
+      try {
+        const res = await fetch('/generate/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ api_key: apiKey, video_path: videoPath, srt_path: srtPath }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          (data.errors || ['Failed to start job.']).forEach(e => log('ERROR: ' + e, 'error'));
+          document.getElementById('generateBtn').disabled = false;
+          return;
+        }
+        jobId = data.job_id;
+      } catch (e) {
+        log('Failed to start job: ' + e.message, 'error');
+        document.getElementById('generateBtn').disabled = false;
+        return;
+      }
+
+      const es = new EventSource('/generate/stream?job_id=' + encodeURIComponent(jobId));
 
       es.onmessage = function(e) {
         const msg = JSON.parse(e.data);

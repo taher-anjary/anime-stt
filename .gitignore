@@ -26,3 +26,9 @@ __pycache__/
 # OS clutter
 .DS_Store
 Thumbs.db
+
+# Secrets / config (none tracked today, but never commit these)
+.env
+*.env
+credentials*
+config.json

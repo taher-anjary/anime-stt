@@ -2,10 +2,11 @@
 Anime STT — Flask web server.
 
 Routes:
-  GET  /              serve the UI
-  GET  /browse/video  open native OS file picker, return {path, srt_path}
-  GET  /browse/srt    open native OS save dialog, return {path}
-  GET  /generate      SSE stream — runs the full pipeline
+  GET  /                serve the UI
+  GET  /browse/video    open native OS file picker, return {path, srt_path}
+  GET  /browse/srt      open native OS save dialog, return {path}
+  POST /generate/start  validate input, kick off the pipeline, return {job_id}
+  GET  /generate/stream SSE stream of progress for a given job_id
 """
 
 import json
@@ -14,6 +15,7 @@ import queue
 import re
 import tempfile
 import threading
+import uuid
 import webbrowser
 
 from flask import Flask, Response, jsonify, render_template, request
@@ -28,6 +30,10 @@ app = Flask(__name__)
 # Single job at a time
 _job_running = False
 _job_lock = threading.Lock()
+
+# job_id -> Queue, populated by /generate/start, consumed by /generate/stream
+_jobs: dict = {}
+_jobs_lock = threading.Lock()
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
@@ -102,16 +108,16 @@ def browse_srt():
     return jsonify({"path": path or ""})
 
 
-@app.route("/generate")
-def generate():
-    """SSE endpoint. Reads query params: api_key, video_path, srt_path."""
+@app.route("/generate/start", methods=["POST"])
+def generate_start():
+    """Validate input and kick off the pipeline. Body: JSON {api_key, video_path, srt_path}."""
     global _job_running
 
-    api_key    = request.args.get("api_key", "").strip()
-    video_path = request.args.get("video_path", "").strip()
-    srt_path   = request.args.get("srt_path", "").strip()
+    body = request.get_json(silent=True) or {}
+    api_key    = (body.get("api_key") or "").strip()
+    video_path = (body.get("video_path") or "").strip()
+    srt_path   = (body.get("srt_path") or "").strip()
 
-    # Validate before opening the stream
     errors = []
     if not api_key:
         errors.append("Gemini API key is required.")
@@ -123,19 +129,17 @@ def generate():
         errors.append("SRT output path is required.")
 
     if errors:
-        def _err_gen():
-            for e in errors:
-                yield _sse({"type": "error", "message": e})
-        return Response(_err_gen(), mimetype="text/event-stream")
+        return jsonify({"errors": errors}), 400
 
     with _job_lock:
         if _job_running:
-            def _busy_gen():
-                yield _sse({"type": "error", "message": "A job is already running. Please wait."})
-            return Response(_busy_gen(), mimetype="text/event-stream")
+            return jsonify({"errors": ["A job is already running. Please wait."]}), 409
         _job_running = True
 
+    job_id = uuid.uuid4().hex
     q: queue.Queue = queue.Queue()
+    with _jobs_lock:
+        _jobs[job_id] = q
 
     def pipeline():
         global _job_running
@@ -202,6 +206,22 @@ def generate():
 
     thread = threading.Thread(target=pipeline, daemon=True)
     thread.start()
+
+    return jsonify({"job_id": job_id})
+
+
+@app.route("/generate/stream")
+def generate_stream():
+    """SSE endpoint. Reads query param: job_id (not sensitive — the API key never appears here)."""
+    job_id = request.args.get("job_id", "")
+
+    with _jobs_lock:
+        q = _jobs.pop(job_id, None)
+
+    if q is None:
+        def _missing_gen():
+            yield _sse({"type": "error", "message": "Unknown or already-consumed job_id."})
+        return Response(_missing_gen(), mimetype="text/event-stream")
 
     def event_stream():
         while True:
