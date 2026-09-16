@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🎌 Anime STT
+# <img src="assets/totoro-mascot.png" height="64" style="vertical-align:middle;margin-bottom:6px" alt=""/> Anime STT
 
 ### Japanese anime audio → English subtitles, in minutes
 
