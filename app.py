@@ -15,6 +15,7 @@ import queue
 import re
 import tempfile
 import threading
+import traceback
 import uuid
 import webbrowser
 
@@ -23,6 +24,10 @@ from flask import Flask, Response, jsonify, render_template, request
 from core.audio import extract_audio
 from core.transcriber import transcribe
 from core.srt_fix import fix_overlaps
+
+
+def _log(message: str) -> None:
+    print(f"[app] {message}", flush=True)
 
 
 app = Flask(__name__)
@@ -180,19 +185,37 @@ def generate_start():
                     "message": "No overlapping timestamps detected.",
                 })
 
-            # Ensure output directory exists
-            out_dir = os.path.dirname(srt_path)
-            if out_dir:
-                os.makedirs(out_dir, exist_ok=True)
+            # Ensure output directory exists and write the file
+            try:
+                out_dir = os.path.dirname(srt_path)
+                if out_dir:
+                    os.makedirs(out_dir, exist_ok=True)
 
-            with open(srt_path, "w", encoding="utf-8") as f:
-                f.write(fixed_srt)
+                with open(srt_path, "w", encoding="utf-8") as f:
+                    f.write(fixed_srt)
+            except OSError as exc:
+                _log(f"ERROR: failed to write '{srt_path}': {exc}")
+                raise RuntimeError(
+                    f"Couldn't save the subtitle file to '{srt_path}'. Check that the "
+                    "folder exists and that you have permission to write there."
+                ) from exc
 
+            _log(f"Saved: {srt_path} ({len(fixed_srt)} chars)")
             q.put({"type": "step", "step": "srt_fix", "status": "done"})
             q.put({"type": "done", "message": f"Subtitles saved to: {srt_path}"})
 
-        except Exception as exc:
+        except RuntimeError as exc:
+            # Raised by core.audio / core.transcriber / the write step above —
+            # already logged to the terminal and worded for the end user.
             q.put({"type": "error", "message": str(exc)})
+
+        except Exception as exc:
+            _log(f"ERROR: unexpected {type(exc).__name__}: {exc}")
+            traceback.print_exc()
+            q.put({
+                "type": "error",
+                "message": "Something unexpected went wrong. Check the terminal for details.",
+            })
 
         finally:
             if temp_mp3 and os.path.exists(temp_mp3):
