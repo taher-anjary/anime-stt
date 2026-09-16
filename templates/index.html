@@ -400,12 +400,20 @@
         <div class="step-dot">1</div>
         <div class="step-label">Extract Audio</div>
       </div>
-      <div class="step" id="step-transcribe">
+      <div class="step" id="step-upload">
         <div class="step-dot">2</div>
-        <div class="step-label">Transcribe</div>
+        <div class="step-label">Upload</div>
+      </div>
+      <div class="step" id="step-waiting">
+        <div class="step-dot">3</div>
+        <div class="step-label">Waiting</div>
+      </div>
+      <div class="step" id="step-generate">
+        <div class="step-dot">4</div>
+        <div class="step-label">Generate</div>
       </div>
       <div class="step" id="step-srt_fix">
-        <div class="step-dot">3</div>
+        <div class="step-dot">5</div>
         <div class="step-label">Fix Timestamps</div>
       </div>
     </div>
@@ -421,7 +429,8 @@
   </div>
 
   <script>
-    const STEP_NUMS = { audio: '1', transcribe: '2', srt_fix: '3' };
+    const ALL_STEPS = ['audio', 'upload', 'waiting', 'generate', 'srt_fix'];
+    const STEP_NUMS = { audio: '1', upload: '2', waiting: '3', generate: '4', srt_fix: '5' };
 
     async function browseVideo() {
       try {
@@ -476,7 +485,7 @@
     }
 
     function resetSteps() {
-      ['audio', 'transcribe', 'srt_fix'].forEach(s => setStep(s, null));
+      ALL_STEPS.forEach(s => setStep(s, null));
     }
 
     async function generate() {
@@ -529,7 +538,7 @@
         } else if (msg.type === 'error') {
           log('ERROR: ' + msg.message, 'error');
           // Mark whichever step is currently running as errored
-          ['audio', 'transcribe', 'srt_fix'].forEach(s => {
+          ALL_STEPS.forEach(s => {
             if (document.getElementById('step-' + s).classList.contains('running')) {
               setStep(s, 'error');
             }

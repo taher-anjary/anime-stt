@@ -106,24 +106,30 @@ def transcribe(api_key: str, audio_path: str, progress_callback=None) -> str:
     Upload audio_path to the Gemini Files API, wait for processing,
     generate English SRT subtitles, and return the raw SRT text.
 
-    Raises RuntimeError on upload failure or generation error.
+    progress_callback, if given, is called with a dict:
+      {"step": "upload"|"waiting"|"generate", "status": "running"|"done", "message": str|None}
+    "step"/"status" may be omitted for plain log lines that don't change stage.
+
+    Raises RuntimeError (with a human-readable message) on failure.
     """
+    def emit(message=None, step=None, status=None):
+        if progress_callback:
+            progress_callback({"step": step, "status": status, "message": message})
+
     client = genai.Client(api_key=api_key)
 
     filename = os.path.basename(audio_path)
     filesize = os.path.getsize(audio_path)
 
     try:
-        if progress_callback:
-            progress_callback("Uploading audio to Gemini Files API...")
+        emit(step="upload", status="running", message="Uploading audio to Gemini Files API...")
         _log(f"Uploading: {filename} ({_human_size(filesize)})")
 
         audio_file = client.files.upload(file=audio_path)
         _log(f"Upload complete: file={audio_file.name}, mime_type={audio_file.mime_type}")
+        emit(step="upload", status="done", message=f"Upload complete (file={audio_file.name}).")
 
-        if progress_callback:
-            progress_callback(f"Upload complete (file={audio_file.name}). Waiting for processing...")
-
+        emit(step="waiting", status="running", message="Waiting for Gemini to process the file...")
         poll_count = 0
         while audio_file.state.name != "ACTIVE":
             if audio_file.state.name == "FAILED":
@@ -136,11 +142,10 @@ def transcribe(api_key: str, audio_path: str, progress_callback=None) -> str:
             audio_file = client.files.get(name=audio_file.name)
             poll_count += 1
             _log(f"Processing... (poll #{poll_count}, state={audio_file.state.name})")
-            if progress_callback:
-                progress_callback(f"Still processing... (poll #{poll_count}, state={audio_file.state.name})")
+            emit(message=f"Still processing... (poll #{poll_count}, state={audio_file.state.name})")
+        emit(step="waiting", status="done")
 
-        if progress_callback:
-            progress_callback("File ready. Sending generation request to Gemini...")
+        emit(step="generate", status="running", message="Generating subtitles...")
         _log(f"Sending generate_content request (model={MODEL_ID})...")
 
         response = client.models.generate_content(
@@ -161,6 +166,7 @@ def transcribe(api_key: str, audio_path: str, progress_callback=None) -> str:
             )
         else:
             _log(f"Response received: {response_chars} chars (no usage_metadata returned)")
+        emit(step="generate", status="done", message="Generation complete.")
 
     except genai_errors.APIError as exc:
         _log(f"ERROR: Gemini API error (status={exc.code}): {exc.message}")
@@ -181,8 +187,5 @@ def transcribe(api_key: str, audio_path: str, progress_callback=None) -> str:
         _log(f"Deleted remote file: {audio_file.name}")
     except Exception as exc:
         _log(f"WARNING: failed to delete remote file {audio_file.name}: {exc}")  # Non-fatal
-
-    if progress_callback:
-        progress_callback("Generation complete.")
 
     return response.text

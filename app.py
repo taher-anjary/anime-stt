@@ -159,17 +159,18 @@ def generate_start():
             temp_mp3 = extract_audio(video_path, progress_callback=audio_cb)
             q.put({"type": "step", "step": "audio", "status": "done"})
 
-            # ── Step 2: Transcribe ─────────────────────────────────────────
-            q.put({"type": "step", "step": "transcribe", "status": "running"})
-
-            def transcribe_cb(msg):
-                q.put({"type": "log", "step": "transcribe", "message": msg})
+            # ── Steps 2-4: Upload / Wait for Gemini / Generate ──────────────
+            def transcribe_cb(evt):
+                step, status, message = evt.get("step"), evt.get("status"), evt.get("message")
+                if step and status:
+                    q.put({"type": "step", "step": step, "status": status})
+                if message:
+                    q.put({"type": "log", "step": step, "message": message})
 
             raw_srt = transcribe(api_key, temp_mp3, progress_callback=transcribe_cb)
             raw_srt = _strip_fence(raw_srt)
-            q.put({"type": "step", "step": "transcribe", "status": "done"})
 
-            # ── Step 3: Fix SRT timestamps ─────────────────────────────────
+            # ── Step 5: Fix SRT timestamps ─────────────────────────────────
             q.put({"type": "step", "step": "srt_fix", "status": "running"})
 
             fixed_srt, num_fixed = fix_overlaps(raw_srt)
