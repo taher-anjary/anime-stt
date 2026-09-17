@@ -22,8 +22,9 @@ import webbrowser
 from flask import Flask, Response, jsonify, render_template, request
 
 from core.audio import extract_audio
-from core.transcriber import transcribe
-from core.srt_fix import fix_overlaps
+from core.transcriber import transcribe_japanese
+from core.translator import translate_chunks
+from core.srt_fix import build_and_fix_srt
 
 
 def _log(message: str) -> None:
@@ -45,17 +46,6 @@ _jobs_lock = threading.Lock()
 
 def _sse(data: dict) -> str:
     return f"data: {json.dumps(data)}\n\n"
-
-
-def _strip_fence(text: str) -> str:
-    """Remove ```srt ... ``` or ``` ... ``` wrappers Gemini sometimes adds."""
-    text = text.strip()
-    if text.startswith("```"):
-        # Drop the opening fence line (e.g. "```srt")
-        text = text.split("\n", 1)[1] if "\n" in text else ""
-    if text.endswith("```"):
-        text = text.rsplit("```", 1)[0]
-    return text.strip()
 
 
 # ── Routes ───────────────────────────────────────────────────────────────────
@@ -159,21 +149,23 @@ def generate_start():
             temp_mp3 = extract_audio(video_path, progress_callback=audio_cb)
             q.put({"type": "step", "step": "audio", "status": "done"})
 
-            # ── Steps 2-4: Upload / Wait for Gemini / Generate ──────────────
-            def transcribe_cb(evt):
+            # ── Steps 2-4: Upload / Wait for Gemini / Transcribe (Japanese) ──
+            def progress_cb(evt):
                 step, status, message = evt.get("step"), evt.get("status"), evt.get("message")
                 if step and status:
                     q.put({"type": "step", "step": step, "status": status})
                 if message:
                     q.put({"type": "log", "step": step, "message": message})
 
-            raw_srt = transcribe(api_key, temp_mp3, progress_callback=transcribe_cb)
-            raw_srt = _strip_fence(raw_srt)
+            chunks = transcribe_japanese(api_key, temp_mp3, progress_callback=progress_cb)
 
-            # ── Step 5: Fix SRT timestamps ─────────────────────────────────
+            # ── Step 5: Translate to English ─────────────────────────────────
+            chunks = translate_chunks(api_key, chunks, progress_callback=progress_cb)
+
+            # ── Step 6: Build SRT and fix timestamps ──────────────────────────
             q.put({"type": "step", "step": "srt_fix", "status": "running"})
 
-            fixed_srt, num_fixed = fix_overlaps(raw_srt)
+            fixed_srt, num_fixed = build_and_fix_srt(chunks)
 
             if num_fixed > 0:
                 q.put({

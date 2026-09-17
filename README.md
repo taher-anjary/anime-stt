@@ -50,8 +50,9 @@ Think of the output as **a rough draft you can follow along with**, not a polish
 | Step | What happens |
 |:---:|---|
 | **1** | **Extract Audio** — pulls a small, high-quality mono MP3 from your video |
-| **2** | **Transcribe** — Gemini listens to the full audio and writes timestamped English subtitles |
-| **3** | **Fix Timestamps** — overlapping subtitle end-times are detected and automatically corrected |
+| **2** | **Transcribe** — Gemini 3.5 Transcribe listens to the audio and produces a word-level-timestamped Japanese transcript |
+| **3** | **Translate** — Gemini 2.5 Flash translates the Japanese text to English, returned as structured JSON keyed to each line — the model only ever touches text, never timestamps |
+| **4** | **Build & Fix Timestamps** — the `.srt` is assembled directly from the real ASR timestamps, and any overlapping end-times are automatically corrected |
 
 ---
 
@@ -138,8 +139,10 @@ anime-stt/
 ├── app.py              Flask server + SSE pipeline orchestration
 ├── core/
 │   ├── audio.py        ffmpeg audio extraction
-│   ├── transcriber.py  Gemini Files API + generation
-│   └── srt_fix.py      SRT timestamp overlap correction
+│   ├── transcriber.py  Gemini 3.5 Transcribe — Japanese speech-to-text with word timestamps
+│   ├── segmenter.py    groups word timestamps into subtitle-sized chunks
+│   ├── translator.py   Gemini 2.5 Flash — structured-JSON translation to English
+│   └── srt_fix.py      builds the .srt and corrects overlapping timestamps
 ├── templates/
 │   └── index.html      Browser UI (no external dependencies)
 ├── pyproject.toml      Python project / uv dependency config

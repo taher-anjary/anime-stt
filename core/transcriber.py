@@ -1,5 +1,9 @@
 """
-Gemini-based transcription using the google-genai SDK.
+Japanese speech-to-text using Gemini 3.5 Transcribe (Interactions API).
+
+Returns word-level timestamps from Google's ASR model directly — the model
+is never asked to format timestamps as text, so it can't corrupt them the
+way free-text SRT generation could (see core/srt_fix.py history).
 """
 
 import os
@@ -9,18 +13,19 @@ import traceback
 from google import genai
 from google.genai import errors as genai_errors
 
+from core.segmenter import segment_words
 
-MODEL_ID = "gemini-2.5-flash"
+
+MODEL_ID = "gemini-3.5-transcribe"
 
 # USD per 1M tokens for MODEL_ID (see https://ai.google.dev/gemini-api/docs/pricing).
 # Update these if MODEL_ID changes.
-PRICE_PER_M_INPUT_TEXT = 0.30
-PRICE_PER_M_INPUT_AUDIO = 1.00
-PRICE_PER_M_OUTPUT = 2.50
+PRICE_PER_M_INPUT = 2.00
+PRICE_PER_M_OUTPUT = 12.00
 
 
 def _log(message: str) -> None:
-    print(f"[gemini] {message}", flush=True)
+    print(f"[transcribe] {message}", flush=True)
 
 
 def _human_size(num_bytes: int) -> str:
@@ -32,32 +37,26 @@ def _human_size(num_bytes: int) -> str:
     return f"{size:.1f} GB"
 
 
-def _estimate_cost_usd(usage_metadata) -> float:
-    """Estimate USD cost from usage_metadata, splitting input tokens by modality."""
-    if usage_metadata is None:
+def _offset_to_ms(offset) -> int:
+    """Parse a protobuf-Duration-style offset string (e.g. '12.352s') into milliseconds."""
+    if offset is None:
+        return 0
+    s = str(offset).strip()
+    if s.endswith("s"):
+        s = s[:-1]
+    try:
+        return round(float(s) * 1000)
+    except ValueError:
+        return 0
+
+
+def _estimate_cost_usd(usage) -> float:
+    if usage is None:
         return 0.0
-
-    input_text_tokens = 0
-    input_audio_tokens = 0
-    details = getattr(usage_metadata, "prompt_tokens_details", None) or []
-    for entry in details:
-        modality = str(getattr(entry, "modality", "")).upper()
-        count = getattr(entry, "token_count", 0) or 0
-        if "AUDIO" in modality:
-            input_audio_tokens += count
-        else:
-            input_text_tokens += count
-
-    # Fallback if the API didn't return a per-modality breakdown.
-    prompt_total = getattr(usage_metadata, "prompt_token_count", 0) or 0
-    if not details and prompt_total:
-        input_text_tokens = prompt_total
-
-    output_tokens = getattr(usage_metadata, "candidates_token_count", 0) or 0
-
+    input_tokens = getattr(usage, "total_input_tokens", 0) or 0
+    output_tokens = getattr(usage, "total_output_tokens", 0) or 0
     return (
-        input_text_tokens / 1_000_000 * PRICE_PER_M_INPUT_TEXT
-        + input_audio_tokens / 1_000_000 * PRICE_PER_M_INPUT_AUDIO
+        input_tokens / 1_000_000 * PRICE_PER_M_INPUT
         + output_tokens / 1_000_000 * PRICE_PER_M_OUTPUT
     )
 
@@ -85,29 +84,39 @@ def _friendly_api_error(exc: genai_errors.APIError) -> str:
     return f"Gemini API error ({code}). Check the terminal for details."
 
 
-PROMPT = """\
-You are an expert Japanese-to-English translator specializing in classic anime.
+def _extract_words(interaction) -> list[dict]:
+    """Pull word_info annotations out of an Interaction's model_output steps."""
+    words = []
+    for step in getattr(interaction, "steps", None) or []:
+        if getattr(step, "type", None) != "model_output":
+            continue
+        for item in getattr(step, "content", None) or []:
+            if getattr(item, "type", None) != "text":
+                continue
+            for ann in getattr(item, "annotations", None) or []:
+                if getattr(ann, "type", None) != "word_info":
+                    continue
+                text = getattr(ann, "text", None)
+                if not text:
+                    continue
+                words.append({
+                    "text": text,
+                    "start_ms": _offset_to_ms(getattr(ann, "start_offset", None)),
+                    "end_ms": _offset_to_ms(getattr(ann, "end_offset", None)),
+                })
+    return words
 
-TASK:
-1. Listen to the audio from the beginning to the end.
-2. Transcribe the Japanese dialogue and Translate it into natural, contextually accurate, era-appropriate English.
-4. Output ONLY a valid .srt file format.
 
-CRITICAL RULES:
-- DO NOT skip any dialogue, even if there is background music.
-- DO NOT produce Japanese subtitles. We only want English
-- Timestamps MUST synchronized with the audio dialogue.
-- Output ONLY the SRT content. No conversational text.\
-"""
-
-
-def transcribe(api_key: str, audio_path: str, progress_callback=None) -> str:
+def transcribe_japanese(api_key: str, audio_path: str, progress_callback=None) -> list[dict]:
     """
-    Upload audio_path to the Gemini Files API, wait for processing,
-    generate English SRT subtitles, and return the raw SRT text.
+    Upload audio_path to the Gemini Files API, then transcribe it verbatim in
+    Japanese with word-level timestamps via gemini-3.5-transcribe.
+
+    Returns subtitle-ready chunks (Japanese text; translation happens in a
+    later stage): [{"id", "start_ms", "end_ms", "text"}, ...]
 
     progress_callback, if given, is called with a dict:
-      {"step": "upload"|"waiting"|"generate", "status": "running"|"done", "message": str|None}
+      {"step": "upload"|"waiting"|"transcribe", "status": "running"|"done", "message": str|None}
     "step"/"status" may be omitted for plain log lines that don't change stage.
 
     Raises RuntimeError (with a human-readable message) on failure.
@@ -145,28 +154,43 @@ def transcribe(api_key: str, audio_path: str, progress_callback=None) -> str:
             emit(message=f"Still processing... (poll #{poll_count}, state={audio_file.state.name})")
         emit(step="waiting", status="done")
 
-        emit(step="generate", status="running", message="Generating subtitles...")
-        _log(f"Sending generate_content request (model={MODEL_ID})...")
+        emit(step="transcribe", status="running", message="Transcribing Japanese audio...")
+        _log(f"Sending interactions.create request (model={MODEL_ID})...")
 
-        response = client.models.generate_content(
+        interaction = client.interactions.create(
             model=MODEL_ID,
-            contents=[PROMPT, audio_file],
+            input=[{"type": "audio", "uri": audio_file.uri, "mime_type": audio_file.mime_type}],
+            generation_config={
+                "transcription_config": {
+                    "language_codes": ["ja-JP"],
+                    "mode": {
+                        "type": "verbatim",
+                        "timestamp_granularities": ["word"],
+                    },
+                },
+            },
         )
 
-        usage = getattr(response, "usage_metadata", None)
+        status = getattr(interaction, "status", None)
+        if status == "failed":
+            errors = getattr(interaction, "errors", None) or []
+            _log(f"ERROR: interaction failed: {errors}")
+            raise RuntimeError(
+                "Gemini's transcription request failed. Check the terminal for details."
+            )
+
+        words = _extract_words(interaction)
+        _log(f"Transcription received: {len(words)} words (status={status})")
+
+        usage = getattr(interaction, "usage", None)
         cost = _estimate_cost_usd(usage)
-        response_chars = len(response.text or "")
         if usage is not None:
             _log(
-                f"Response received: {response_chars} chars | "
-                f"tokens: prompt={usage.prompt_token_count}, "
-                f"output={usage.candidates_token_count}, "
-                f"total={usage.total_token_count} | "
-                f"est. cost=${cost:.4f} USD"
+                f"Usage: input={usage.total_input_tokens}, output={usage.total_output_tokens}, "
+                f"total={usage.total_tokens} | est. cost=${cost:.4f} USD"
             )
-        else:
-            _log(f"Response received: {response_chars} chars (no usage_metadata returned)")
-        emit(step="generate", status="done", message="Generation complete.")
+
+        emit(step="transcribe", status="done", message=f"Transcription complete ({len(words)} words).")
 
     except genai_errors.APIError as exc:
         _log(f"ERROR: Gemini API error (status={exc.code}): {exc.message}")
@@ -188,4 +212,13 @@ def transcribe(api_key: str, audio_path: str, progress_callback=None) -> str:
     except Exception as exc:
         _log(f"WARNING: failed to delete remote file {audio_file.name}: {exc}")  # Non-fatal
 
-    return response.text
+    if not words:
+        raise RuntimeError(
+            "Gemini returned no transcribed words for this audio. The clip may be silent, "
+            "non-speech, or in a format/language it couldn't process."
+        )
+
+    chunks = segment_words(words)
+    _log(f"Segmented into {len(chunks)} subtitle chunks")
+
+    return chunks

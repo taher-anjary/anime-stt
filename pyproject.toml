@@ -4,5 +4,5 @@ version = "0.1.0"
 requires-python = ">=3.10"
 dependencies = [
     "flask>=3.0",
-    "google-genai>=0.9",
+    "google-genai>=2.3.0",
 ]

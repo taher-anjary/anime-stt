@@ -408,12 +408,16 @@
         <div class="step-dot">3</div>
         <div class="step-label">Waiting</div>
       </div>
-      <div class="step" id="step-generate">
+      <div class="step" id="step-transcribe">
         <div class="step-dot">4</div>
-        <div class="step-label">Generate</div>
+        <div class="step-label">Transcribe (JA)</div>
+      </div>
+      <div class="step" id="step-translate">
+        <div class="step-dot">5</div>
+        <div class="step-label">Translate (EN)</div>
       </div>
       <div class="step" id="step-srt_fix">
-        <div class="step-dot">5</div>
+        <div class="step-dot">6</div>
         <div class="step-label">Fix Timestamps</div>
       </div>
     </div>
@@ -429,8 +433,8 @@
   </div>
 
   <script>
-    const ALL_STEPS = ['audio', 'upload', 'waiting', 'generate', 'srt_fix'];
-    const STEP_NUMS = { audio: '1', upload: '2', waiting: '3', generate: '4', srt_fix: '5' };
+    const ALL_STEPS = ['audio', 'upload', 'waiting', 'transcribe', 'translate', 'srt_fix'];
+    const STEP_NUMS = { audio: '1', upload: '2', waiting: '3', transcribe: '4', translate: '5', srt_fix: '6' };
 
     async function browseVideo() {
       try {
