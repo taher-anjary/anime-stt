@@ -18,6 +18,7 @@
 [![Powered by Gemini](https://img.shields.io/badge/powered%20by-Gemini-8e44ff?style=flat-square&logo=google&logoColor=white)](https://aistudio.google.com)
 [![uv](https://img.shields.io/badge/env-uv-orange?style=flat-square)](https://docs.astral.sh/uv/)
 [![Windows · macOS · Linux](https://img.shields.io/badge/platform-Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-lightgrey?style=flat-square)](#getting-started)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support-FFDD00?style=flat-square&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/taheranjary)
 
 </div>
 
