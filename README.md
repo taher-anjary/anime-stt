@@ -150,4 +150,3 @@ anime-stt/
 ├── Start.command       macOS launcher
 └── Start.sh            Linux launcher
 ```
-
