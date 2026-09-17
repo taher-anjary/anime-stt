@@ -73,3 +73,75 @@ def extract_audio(video_path: str, progress_callback=None) -> str:
         progress_callback(f"Audio extracted ({size_mb:.1f} MB)")
 
     return temp_mp3
+
+
+def get_duration_seconds(audio_path: str) -> float:
+    """Read an audio file's duration via ffprobe. Raises RuntimeError on failure."""
+    cmd = [
+        "ffprobe", "-v", "error",
+        "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        audio_path,
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True)
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            "ffprobe isn't installed or isn't on your system PATH. It ships with ffmpeg — "
+            "reinstall ffmpeg, then try again."
+        ) from exc
+
+    if result.returncode != 0 or not result.stdout.strip():
+        _log(f"ERROR: ffprobe failed on {audio_path}: {result.stderr}")
+        raise RuntimeError("Couldn't determine the audio's duration. Check the terminal for the ffprobe error.")
+
+    return float(result.stdout.strip())
+
+
+def split_audio(audio_path: str, chunk_seconds: int) -> list[dict]:
+    """
+    Split audio_path into pieces no longer than chunk_seconds (mp3 stream
+    copy — fast, no re-encode). If audio_path is already short enough,
+    returns it unsplit.
+
+    Returns [{"path", "offset_ms", "duration_ms"}, ...] in chronological
+    order. Any path that isn't audio_path itself is a new temp file the
+    caller must delete when done.
+    """
+    total_seconds = get_duration_seconds(audio_path)
+    if total_seconds <= chunk_seconds:
+        return [{"path": audio_path, "offset_ms": 0, "duration_ms": round(total_seconds * 1000)}]
+
+    segments = []
+    start = 0.0
+    while start < total_seconds:
+        duration = min(chunk_seconds, total_seconds - start)
+        chunk_path = tempfile.mktemp(suffix=".mp3")
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", str(start),
+            "-i", audio_path,
+            "-t", str(duration),
+            "-c", "copy",
+            chunk_path,
+        ]
+        _log(f"Splitting chunk {len(segments) + 1}: {' '.join(cmd)}")
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        if result.returncode != 0:
+            _log(f"ERROR: ffmpeg split failed: {result.stderr}")
+            raise RuntimeError(
+                "Couldn't split the audio into chunks for processing. Check the terminal "
+                "for the ffmpeg error."
+            )
+
+        segments.append({
+            "path": chunk_path,
+            "offset_ms": round(start * 1000),
+            "duration_ms": round(duration * 1000),
+        })
+        start += chunk_seconds
+
+    _log(f"Split {audio_path} ({total_seconds:.1f}s) into {len(segments)} chunk(s) of up to {chunk_seconds}s")
+    return segments

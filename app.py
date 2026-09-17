@@ -21,8 +21,8 @@ import webbrowser
 
 from flask import Flask, Response, jsonify, render_template, request
 
-from core.audio import extract_audio
-from core.transcriber import transcribe_japanese
+from core.audio import extract_audio, split_audio
+from core.transcriber import transcribe_japanese, MAX_AUDIO_SEGMENT_SECONDS
 from core.translator import translate_chunks
 from core.srt_fix import build_and_fix_srt
 
@@ -139,6 +139,7 @@ def generate_start():
     def pipeline():
         global _job_running
         temp_mp3 = None
+        segment_paths = []
         try:
             # ── Step 1: Extract audio ──────────────────────────────────────
             q.put({"type": "step", "step": "audio", "status": "running"})
@@ -157,7 +158,41 @@ def generate_start():
                 if message:
                     q.put({"type": "log", "step": step, "message": message})
 
-            chunks = transcribe_japanese(api_key, temp_mp3, progress_callback=progress_cb)
+            # Gemini caps audio duration per request when word-level timestamps
+            # are requested — split longer audio into segments, transcribe each
+            # separately, then reassemble with the segment's time offset applied.
+            segments = split_audio(temp_mp3, MAX_AUDIO_SEGMENT_SECONDS)
+            segment_paths = [s["path"] for s in segments if s["path"] != temp_mp3]
+            num_segments = len(segments)
+
+            if num_segments > 1:
+                q.put({
+                    "type": "log", "step": "transcribe",
+                    "message": (
+                        f"Audio is longer than {MAX_AUDIO_SEGMENT_SECONDS // 60} min — "
+                        f"split into {num_segments} segments for transcription."
+                    ),
+                })
+
+            chunks = []
+            for i, seg in enumerate(segments, start=1):
+                label = f"segment {i}/{num_segments}" if num_segments > 1 else None
+                if num_segments > 1:
+                    q.put({
+                        "type": "log", "step": "transcribe",
+                        "message": f"Processing segment [{i}/{num_segments}]...",
+                    })
+
+                seg_chunks = transcribe_japanese(
+                    api_key, seg["path"], progress_callback=progress_cb, segment_label=label
+                )
+                for c in seg_chunks:
+                    c["start_ms"] += seg["offset_ms"]
+                    c["end_ms"] += seg["offset_ms"]
+                chunks.extend(seg_chunks)
+
+            for idx, c in enumerate(chunks):
+                c["id"] = idx
 
             # ── Step 5: Translate to English ─────────────────────────────────
             chunks = translate_chunks(api_key, chunks, progress_callback=progress_cb)
@@ -216,6 +251,12 @@ def generate_start():
                     os.remove(temp_mp3)
                 except OSError:
                     pass
+            for seg_path in segment_paths:
+                if os.path.exists(seg_path):
+                    try:
+                        os.remove(seg_path)
+                    except OSError:
+                        pass
             with _job_lock:
                 _job_running = False
             q.put(None)  # sentinel — end of stream
